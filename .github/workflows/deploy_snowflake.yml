@@ -39,11 +39,14 @@ jobs:
         
       - name: Deploy notebooks and fetch
         env:
-          # Variable del entorno de destino (DEV o MAIN)
+          # 1. Pasar las variables directamente a ENV (sin lógica compleja en YAML)
           ENV_TARGET: ${{ github.event_name == 'push' && (github.ref_name == 'main' && 'MAIN' || 'DEV') || github.event.inputs.deployment_target }}
           
-          # Nombre de la rama de Git que dispara el evento (si es push) o la entrada manual.
-          SOURCE_BRANCH_NAME_INPUT: ${{ github.event.inputs.source_branch || '' }}
+          # 2. Pasar el nombre de la rama disparada o la entrada manual.
+          # La conversión a minúsculas y la lógica condicional ocurre en el script 'run:'.
+          PUSH_BRANCH: ${{ github.ref_name }}
+          SOURCE_BRANCH_INPUT: ${{ github.event.inputs.source_branch || '' }}
+          DEPLOYMENT_TARGET_INPUT: ${{ github.event.inputs.deployment_target || '' }}
           
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
@@ -54,20 +57,20 @@ jobs:
           SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
           
         run: |
+          # --- LÓGICA DE DETERMINACIÓN DE LA RAMA Y EL ENTORNO EN BASH ---
+          
           # 1. Determinar el Entorno Final (siempre en mayúsculas)
           TARGET_ENV=$(echo $ENV_TARGET | tr '[:lower:]' '[:upper:]')
           
-          # 2. Lógica para determinar el nombre de la RAMA DE ORIGEN
-          # a) Prioridad 1: Si es un push, usamos el nombre de la rama que ha disparado.
-          # b) Prioridad 2: Si es manual y se ha introducido una rama.
-          # c) Prioridad 3: Usamos el nombre del entorno en minúsculas (e.g., 'dev' si TARGET_ENV='DEV').
-          
+          # 2. Lógica para determinar el nombre de la RAMA DE ORIGEN (la fuente del código)
           if [ "${{ github.event_name }}" == "push" ]; then
-              BRANCH_NAME="${{ github.ref_name }}"
-          elif [ "$SOURCE_BRANCH_NAME_INPUT" != "" ]; then
-              BRANCH_NAME=$SOURCE_BRANCH_NAME_INPUT
+              # PRIORIDAD 1: Si es un push, usamos la rama que disparó el evento.
+              BRANCH_NAME=$PUSH_BRANCH
+          elif [ "$SOURCE_BRANCH_INPUT" != "" ]; then
+              # PRIORIDAD 2: Si es manual y se introdujo una rama en el input.
+              BRANCH_NAME=$SOURCE_BRANCH_INPUT
           else
-              # Opción por defecto para manual (DEV -> dev, MAIN -> main)
+              # PRIORIDAD 3: Usamos el nombre del destino en minúsculas (e.g., 'DEV' -> 'dev', 'MAIN' -> 'main')
               BRANCH_NAME=$(echo $TARGET_ENV | tr '[:upper:]' '[:lower:]')
           fi
           
