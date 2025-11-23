@@ -39,8 +39,15 @@ jobs:
         
       - name: Deploy notebooks and fetch
         env:
+          # 1. Pasar las variables directamente a ENV (sin lógica compleja en YAML)
           ENV_TARGET: ${{ github.event_name == 'push' && (github.ref_name == 'main' && 'MAIN' || 'DEV') || github.event.inputs.deployment_target }}
-          SOURCE_BRANCH_NAME: ${{ github.event_name == 'push' && github.ref_name || (github.event.inputs.source_branch || (github.event.inputs.deployment_target | lower)) }}
+          
+          # 2. Pasar el nombre de la rama disparada o la entrada manual.
+          # La conversión a minúsculas y la lógica condicional ocurre en el script 'run:'.
+          PUSH_BRANCH: ${{ github.ref_name }}
+          SOURCE_BRANCH_INPUT: ${{ github.event.inputs.source_branch || '' }}
+          DEPLOYMENT_TARGET_INPUT: ${{ github.event.inputs.deployment_target || '' }}
+          
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
@@ -50,23 +57,38 @@ jobs:
           SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
           
         run: |
-          # 2. Convertir a minúsculas para usar en la URL de la rama (e.g., MAIN -> main)
-          BRANCH_NAME=$(echo $ENV_TARGET | tr '[:upper:]' '[:lower:]')
+          # --- LÓGICA DE DETERMINACIÓN DE LA RAMA Y EL ENTORNO EN BASH ---
           
-          # 3. CREAR ESQUEMA DINÁMICO: Crea el esquema de destino (ej: MAIN_SCHEMA) si no existe.
-          # Esto resuelve el error 002003.
-          TARGET_SCHEMA_NAME=$(echo $ENV_TARGET)_SCHEMA
+          # 1. Determinar el Entorno Final (siempre en mayúsculas)
+          TARGET_ENV=$(echo $ENV_TARGET | tr '[:lower:]' '[:upper:]')
+          
+          # 2. Lógica para determinar el nombre de la RAMA DE ORIGEN (la fuente del código)
+          if [ "${{ github.event_name }}" == "push" ]; then
+              # PRIORIDAD 1: Si es un push, usamos la rama que disparó el evento.
+              BRANCH_NAME=$PUSH_BRANCH
+          elif [ "$SOURCE_BRANCH_INPUT" != "" ]; then
+              # PRIORIDAD 2: Si es manual y se introdujo una rama en el input.
+              BRANCH_NAME=$SOURCE_BRANCH_INPUT
+          else
+              # PRIORIDAD 3: Usamos el nombre del destino en minúsculas (e.g., 'DEV' -> 'dev', 'MAIN' -> 'main')
+              BRANCH_NAME=$(echo $TARGET_ENV | tr '[:upper:]' '[:lower:]')
+          fi
+          
+          echo "Despliegue a: $TARGET_ENV, Código fuente: $BRANCH_NAME"
+
+          # 3. CREAR ESQUEMA DINÁMICO
+          TARGET_SCHEMA_NAME=${TARGET_ENV}_SCHEMA
           echo "Creando o asegurando la existencia del esquema: $TARGET_SCHEMA_NAME en la BD: $SNOWFLAKE_DATABASE"
           snow sql -q "CREATE SCHEMA IF NOT EXISTS $TARGET_SCHEMA_NAME;" \
             --temporary-connection --account $SNOWFLAKE_ACCOUNT --user $SNOWFLAKE_USER \
             --role $SNOWFLAKE_ROLE --warehouse $SNOWFLAKE_WAREHOUSE --database $SNOWFLAKE_DATABASE
 
-          # 4. Primer comando: Fetch de la rama seleccionada
+          # 4. Primer comando: Fetch de la rama
           snow sql -q "ALTER GIT REPOSITORY DEMO_GIT_REPO_V2 FETCH" \
             --temporary-connection --account $SNOWFLAKE_ACCOUNT --user $SNOWFLAKE_USER \
             --role $SNOWFLAKE_ROLE --warehouse $SNOWFLAKE_WAREHOUSE --database $SNOWFLAKE_DATABASE --schema $SNOWFLAKE_SCHEMA
 
           # 5. Segundo comando: Ejecutar el script SQL usando las variables dinámicas
-          snow sql -q "EXECUTE IMMEDIATE FROM @DEMO_GIT_REPO_V2/branches/$BRANCH_NAME/script_to_deploy_notebooks/deploy_notebooks.sql USING (env => '$ENV_TARGET', branch => '$BRANCH_NAME')" \
+          snow sql -q "EXECUTE IMMEDIATE FROM @DEMO_GIT_REPO_V2/branches/$BRANCH_NAME/script_to_deploy_notebooks/deploy_notebooks.sql USING (env => '$TARGET_ENV', branch => '$BRANCH_NAME')" \
             --temporary-connection --account $SNOWFLAKE_ACCOUNT --user $SNOWFLAKE_USER \
             --role $SNOWFLAKE_ROLE --warehouse $SNOWFLAKE_WAREHOUSE --database $SNOWFLAKE_DATABASE --schema $SNOWFLAKE_SCHEMA
