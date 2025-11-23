@@ -1,22 +1,25 @@
-# Controls when the action will run.
 name: ❄️ Despliegue de Notebooks y Fetch
 
 on:
-  # Ejecución automática al hacer push en main (para despliegue PROD automático)
   push:
     branches:
-      - main
+      - '*' 
 
-  # Permite ejecutar este workflow manualmente desde la pestaña Actions
   workflow_dispatch:
     inputs:
-      deployment_target: # Nombre de la variable de entrada
-        description: 'Selecciona la rama/entorno de despliegue'
+      deployment_target:
+        description: 'Selecciona el esquema de destino (DEV o MAIN)'
         required: true
         type: choice
-        options: # Opciones que aparecerán en el botón "Run workflow"
+        options: 
           - DEV
           - MAIN
+          
+      source_branch:
+        description: 'Rama Git de donde se extraerá el código (opcional: deja vacío para usar la rama seleccionada arriba)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   deploy:
@@ -33,14 +36,11 @@ jobs:
 
       - name: Install Python packages
         run: pip install -r requirements.txt
-
-      # 1. Configura la conexión y ejecuta la lógica
+        
       - name: Deploy notebooks and fetch
-        # Se define una variable para la rama seleccionada. Si es ejecución manual (workflow_dispatch),
-        # toma el valor de la entrada. Si es 'push' automático, usa 'main'.
-        # La variable env_target se usará para ambos: la rama de Git y el esquema de destino (env).
         env:
-          ENV_TARGET: ${{ github.event_name == 'push' && 'MAIN' || github.event.inputs.deployment_target }}
+          ENV_TARGET: ${{ github.event_name == 'push' && (github.ref_name == 'main' && 'MAIN' || 'DEV') || github.event.inputs.deployment_target }}
+          SOURCE_BRANCH_NAME: ${{ github.event_name == 'push' && github.ref_name || (github.event.inputs.source_branch || (github.event.inputs.deployment_target | lower)) }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
