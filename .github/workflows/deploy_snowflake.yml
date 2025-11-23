@@ -50,21 +50,23 @@ jobs:
           SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
           
         run: |
-          TARGET_ENV=$(echo $ENV_TARGET | tr '[:lower:]' '[:upper:]')
-          BRANCH_NAME=$SOURCE_BRANCH_NAME
+          # 2. Convertir a minúsculas para usar en la URL de la rama (e.g., MAIN -> main)
+          BRANCH_NAME=$(echo $ENV_TARGET | tr '[:upper:]' '[:lower:]')
           
-          echo "Despliegue a: $TARGET_ENV, Código fuente: $BRANCH_NAME"
-
-          TARGET_SCHEMA_NAME=${TARGET_ENV}_SCHEMA
+          # 3. CREAR ESQUEMA DINÁMICO: Crea el esquema de destino (ej: MAIN_SCHEMA) si no existe.
+          # Esto resuelve el error 002003.
+          TARGET_SCHEMA_NAME=$(echo $ENV_TARGET)_SCHEMA
           echo "Creando o asegurando la existencia del esquema: $TARGET_SCHEMA_NAME en la BD: $SNOWFLAKE_DATABASE"
           snow sql -q "CREATE SCHEMA IF NOT EXISTS $TARGET_SCHEMA_NAME;" \
             --temporary-connection --account $SNOWFLAKE_ACCOUNT --user $SNOWFLAKE_USER \
             --role $SNOWFLAKE_ROLE --warehouse $SNOWFLAKE_WAREHOUSE --database $SNOWFLAKE_DATABASE
 
+          # 4. Primer comando: Fetch de la rama seleccionada
           snow sql -q "ALTER GIT REPOSITORY DEMO_GIT_REPO_V2 FETCH" \
             --temporary-connection --account $SNOWFLAKE_ACCOUNT --user $SNOWFLAKE_USER \
             --role $SNOWFLAKE_ROLE --warehouse $SNOWFLAKE_WAREHOUSE --database $SNOWFLAKE_DATABASE --schema $SNOWFLAKE_SCHEMA
 
-          snow sql -q "EXECUTE IMMEDIATE FROM @DEMO_GIT_REPO_V2/branches/$BRANCH_NAME/script_to_deploy_notebooks/deploy_notebooks.sql USING (env => '$TARGET_ENV', branch => '$BRANCH_NAME')" \
+          # 5. Segundo comando: Ejecutar el script SQL usando las variables dinámicas
+          snow sql -q "EXECUTE IMMEDIATE FROM @DEMO_GIT_REPO_V2/branches/$BRANCH_NAME/script_to_deploy_notebooks/deploy_notebooks.sql USING (env => '$ENV_TARGET', branch => '$BRANCH_NAME')" \
             --temporary-connection --account $SNOWFLAKE_ACCOUNT --user $SNOWFLAKE_USER \
             --role $SNOWFLAKE_ROLE --warehouse $SNOWFLAKE_WAREHOUSE --database $SNOWFLAKE_DATABASE --schema $SNOWFLAKE_SCHEMA
