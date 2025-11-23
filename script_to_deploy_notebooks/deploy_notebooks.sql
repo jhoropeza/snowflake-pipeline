@@ -9,7 +9,7 @@ Last Updated: 6/11/2024
 
 -- See https://docs.snowflake.com/en/LIMITEDACCESS/execute-immediate-from-template
 
--- Create the Notebooks.
+-- Create the Notebooks
 --USE SCHEMA {{env}}_SCHEMA;
 
 CREATE OR REPLACE NOTEBOOK IDENTIFIER('"DEMO_DB_V2"."{{env}}_SCHEMA"."{{env}}_06_load_excel_files"')
